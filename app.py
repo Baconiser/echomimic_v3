@@ -305,7 +305,7 @@ def generate(
             sample = pipeline(
                 prompt,
                 num_frames            = partial_video_length,
-                negative_prompt       = config.negative_prompt,
+                negative_prompt       = "low quality, blurry, bad hands, bad face",
                 audio_embeds          = partial_audio_embeds,
                 audio_scale           = config.audio_scale,
                 ip_mask               = ip_mask,
