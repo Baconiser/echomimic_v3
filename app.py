@@ -38,6 +38,7 @@ from src.cache_utils import get_teacache_coefficients
 
 from src.face_detect import get_mask_coord
 
+from mmgp import offload, profile_type
 import argparse
 import gradio as gr
 import random
@@ -48,6 +49,8 @@ parser.add_argument("--server_name", type=str, default="127.0.0.1", help="IP地�
 parser.add_argument("--server_port", type=int, default=7891, help="使用端口")
 parser.add_argument("--share", action="store_true", help="是否启用gradio共享")
 parser.add_argument("--mcp_server", action="store_true", help="是否启用mcp服务")
+parser.add_argument("--max_vram", type=float, default=0.9, help="占用显存最大比例")
+parser.add_argument("--compile", action="store_true", help="是否启用compile加速")
 args = parser.parse_args()
 
 
@@ -204,6 +207,14 @@ pipeline = WanFunInpaintAudioPipeline(
     text_encoder=text_encoder,
     scheduler=scheduler,
     clip_image_encoder=clip_image_encoder,
+)
+budgets = int(torch.cuda.get_device_properties(0).total_memory/1048576 * args.max_vram)
+print(f"Auto-adjust max VRAM to {budgets}MB")
+offload.profile(
+    pipeline,
+    profile_type.LowRAM_HighVRAM,
+    budgets={'*':budgets},
+    compile=True if args.compile else False,
 )
 pipeline.to(device=device)
 
