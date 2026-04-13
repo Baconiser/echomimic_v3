@@ -235,7 +235,11 @@ def generate(
     audio,
     prompt,
     negative_prompt,
-    seed_param
+    seed_param,
+    guidance_scale,
+    audio_guidance_scale,
+    num_inference_steps,
+    partial_video_length
 ):
     if seed_param<0:
         seed = random.randint(0, np.iinfo(np.int32).max)
@@ -280,7 +284,7 @@ def generate(
     ip_mask = get_ip_mask(coords).unsqueeze(0)
     ip_mask = torch.cat([ip_mask]*3).to(device=device, dtype=config.weight_dtype)
 
-    partial_video_length = int((config.partial_video_length - 1) // vae.config.temporal_compression_ratio * vae.config.temporal_compression_ratio) + 1 if video_length != 1 else 1
+    partial_video_length = int((partial_video_length - 1) // vae.config.temporal_compression_ratio * vae.config.temporal_compression_ratio) + 1 if video_length != 1 else 1
     latent_frames = (partial_video_length - 1) // vae.config.temporal_compression_ratio + 1
 
     # get clip image
@@ -316,7 +320,7 @@ def generate(
             sample = pipeline(
                 prompt,
                 num_frames            = partial_video_length,
-                negative_prompt       = "low quality, blurry, bad hands, bad face",
+                negative_prompt       = negative_prompt,
                 audio_embeds          = partial_audio_embeds,
                 audio_scale           = config.audio_scale,
                 ip_mask               = ip_mask,
@@ -328,18 +332,18 @@ def generate(
                 neg_steps             = config.neg_steps,
                 use_dynamic_cfg       = config.use_dynamic_cfg,
                 use_dynamic_acfg      = config.use_dynamic_acfg,
-                guidance_scale        = config.guidance_scale,
-                audio_guidance_scale  = config.audio_guidance_scale,
-                num_inference_steps   = config.num_inference_steps,
+                guidance_scale        = guidance_scale,
+                audio_guidance_scale  = audio_guidance_scale,
+                num_inference_steps   = num_inference_steps,
                 video                 = input_video,
                 mask_video            = input_video_mask,
                 clip_image            = clip_image,
                 cfg_skip_ratio        = config.cfg_skip_ratio,
                 shift                 = config.shift,
             ).videos
-        
+
         if init_frames != 0:
-            
+
 
             new_sample[:, :, -config.overlap_video_length:] = (
                 new_sample[:, :, -config.overlap_video_length:] * (1 - mix_ratio) +
@@ -364,7 +368,7 @@ def generate(
 
         del input_video, input_video_mask, partial_audio_embeds
         torch.cuda.empty_cache()  # Release unused memory
-            
+
     # Save generated video
     video_path = os.path.join(save_path, f"{timestamp}.mp4")
     video_audio_path = os.path.join(save_path, f"{timestamp}_audio.mp4")
@@ -397,15 +401,21 @@ with gr.Blocks(theme=gr.themes.Base()) as demo:
     with gr.TabItem("EchoMimicV3"):
         with gr.Row():
             with gr.Column():
-                image = gr.Image(label="上传图片", type="filepath", height=400)
-                audio = gr.Audio(label="上传音频", type="filepath")
-                prompt = gr.Textbox(label="提示词", value="")
-                negative_prompt = gr.Textbox(label="负面提示词", value="Gesture is bad. Gesture is unclear. Strange and twisted hands. Bad hands. Bad fingers. Unclear and blurry hands. 手部快速摆动, 手指频繁抽搐, 夸张手势, 重复机械性动作.")
-                seed_param = gr.Number(label="种子，请输入正整数，-1为随机", value=-1)
-                generate_button = gr.Button("🎬 开始生成", variant='primary')
+                image = gr.Image(label="Upload Image", type="filepath", height=400)
+                audio = gr.Audio(label="Upload Audio", type="filepath")
+                prompt = gr.Textbox(label="Prompt", value="")
+                negative_prompt = gr.Textbox(label="Negative Prompt", value="blurry, low quality, distorted face, deformed hands, extra fingers, fused fingers, missing fingers, bad anatomy, poorly drawn face, poorly drawn hands, bad proportions, watermark, signature, text, logo, frame, border", info="What to avoid in the generated video")
+                with gr.Row():
+                    guidance_scale = gr.Slider(label="Guidance Scale", minimum=1.0, maximum=10.0, step=0.1, value=4.5)
+                    audio_guidance_scale = gr.Slider(label="Audio Guidance Scale", minimum=1.0, maximum=10.0, step=0.1, value=2.5)
+                with gr.Row():
+                    num_inference_steps = gr.Slider(label="Inference Steps", minimum=5, maximum=50, step=1, value=20)
+                    partial_video_length = gr.Slider(label="Chunk Length", minimum=49, maximum=161, step=16, value=113, info="Higher = longer video, more VRAM needed")
+                seed_param = gr.Number(label="Seed (positive int, -1 for random)", value=-1)
+                generate_button = gr.Button("Generate", variant='primary')
             with gr.Column():
-                video_output = gr.Video(label="生成结果", interactive=False)
-                seed_output = gr.Textbox(label="种子")
+                video_output = gr.Video(label="Result", interactive=False)
+                seed_output = gr.Textbox(label="Seed Used")
 
         gr.on(
         triggers=[generate_button.click, prompt.submit, negative_prompt.submit],
@@ -416,6 +426,10 @@ with gr.Blocks(theme=gr.themes.Base()) as demo:
             prompt,
             negative_prompt,
             seed_param,
+            guidance_scale,
+            audio_guidance_scale,
+            num_inference_steps,
+            partial_video_length,
         ],
         outputs = [video_output, seed_output]
     )
